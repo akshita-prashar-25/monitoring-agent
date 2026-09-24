@@ -1,0 +1,7 @@
+agent_credentials.json
+agent_credentials_backup.json
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
