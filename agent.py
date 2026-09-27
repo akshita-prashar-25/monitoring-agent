@@ -12,7 +12,7 @@ import os
 
 backend_url = os.getenv(
     "BACKEND_URL",
-    "http://localhost:8080"
+    "https://cloud-infrastructure-monitoring.onrender.com"
 )
 
 registration_url = (
@@ -30,6 +30,7 @@ metrics_url = (
 
 agent_name = "Windows Monitoring Agent"
 
+
 # =========================
 # CREDENTIAL FILE
 # =========================
@@ -42,7 +43,6 @@ credential_file = "agent_credentials.json"
 # =========================
 
 hostname = socket.gethostname()
-
 
 try:
 
@@ -65,17 +65,18 @@ def register_agent():
         "\nRegistering agent with Spring Boot..."
     )
 
-
     registration_data = {
 
-        "agentName": agent_name,
+        "agentName":
+            agent_name,
 
-        "hostname": hostname,
+        "hostname":
+            hostname,
 
-        "ipAddress": ip_address
+        "ipAddress":
+            ip_address
 
     }
-
 
     try:
 
@@ -85,10 +86,9 @@ def register_agent():
 
             json=registration_data,
 
-            timeout=5
+            timeout=60
 
         )
-
 
         if not response.ok:
 
@@ -107,7 +107,6 @@ def register_agent():
             )
 
             return None
-
 
         agent_data = response.json()
 
@@ -131,14 +130,21 @@ def register_agent():
 
 
         with open(
+
             credential_file,
+
             "w"
+
         ) as file:
 
             json.dump(
+
                 credentials,
+
                 file,
+
                 indent=4
+
             )
 
 
@@ -164,7 +170,6 @@ def register_agent():
         print(
             "\nAgent credentials saved."
         )
-
 
         return credentials
 
@@ -199,8 +204,11 @@ def load_credentials():
     try:
 
         with open(
+
             credential_file,
+
             "r"
+
         ) as file:
 
             credentials = json.load(
@@ -226,6 +234,75 @@ def load_credentials():
 
 
 # =========================
+# DELETE INVALID CREDENTIALS
+# =========================
+
+def delete_credentials():
+
+    if os.path.exists(
+        credential_file
+    ):
+
+        try:
+
+            os.remove(
+                credential_file
+            )
+
+            print(
+                "\nOld agent credentials removed."
+            )
+
+        except Exception as error:
+
+            print(
+                "\nCould not remove old credentials."
+            )
+
+            print(
+                "Error:",
+                error
+            )
+
+
+# =========================
+# REGISTER OR LOAD AGENT
+# =========================
+
+def get_agent_credentials():
+
+    credentials = load_credentials()
+
+
+    # =========================
+    # EXISTING CREDENTIALS
+    # =========================
+
+    if credentials:
+
+        print(
+            "\nExisting agent credentials found."
+        )
+
+        print(
+            "Using existing registration."
+        )
+
+        return credentials
+
+
+    # =========================
+    # NEW REGISTRATION
+    # =========================
+
+    print(
+        "\nNo existing agent registration found."
+    )
+
+    return register_agent()
+
+
+# =========================
 # START AGENT
 # =========================
 
@@ -242,58 +319,25 @@ print(
 )
 
 
-# =========================
-# CHECK FOR SAVED CREDENTIALS
-# =========================
-
-credentials = load_credentials()
+credentials = get_agent_credentials()
 
 
-if credentials:
+if credentials is None:
 
     print(
-        "\nExisting agent credentials found."
+        "\nUnable to start monitoring agent."
     )
 
-    print(
-        "Using existing registration."
-    )
-
-    agent_id = credentials["agentId"]
-
-    registered_server_id = (
-        credentials["serverId"]
-    )
-
-    api_key = credentials["apiKey"]
+    exit()
 
 
-else:
+agent_id = credentials["agentId"]
 
-    print(
-        "\nNo existing agent registration found."
-    )
+registered_server_id = (
+    credentials["serverId"]
+)
 
-
-    credentials = register_agent()
-
-
-    if credentials is None:
-
-        print(
-            "\nUnable to start monitoring agent."
-        )
-
-        exit()
-
-
-    agent_id = credentials["agentId"]
-
-    registered_server_id = (
-        credentials["serverId"]
-    )
-
-    api_key = credentials["apiKey"]
+api_key = credentials["apiKey"]
 
 
 # =========================
@@ -361,7 +405,8 @@ monitoring_interval = 10
 
 headers = {
 
-    "X-API-Key": api_key
+    "X-API-Key":
+        api_key
 
 }
 
@@ -399,13 +444,15 @@ while True:
         # DISK
         # =========================
 
-        disk_path = os.path.abspath(os.sep)
+        disk_path = os.path.abspath(
+            os.sep
+        )
 
         disk_usage = (
             psutil.disk_usage(
-            disk_path
-        ).percent
-)
+                disk_path
+            ).percent
+        )
 
 
         # =========================
@@ -453,6 +500,12 @@ while True:
             previous_time
 
         )
+
+
+        # Avoid division by zero
+        if time_difference <= 0:
+
+            time_difference = 1
 
 
         upload_speed = (
@@ -552,9 +605,72 @@ while True:
 
             headers=headers,
 
-            timeout=5
+            timeout=60
 
         )
+
+
+        # =========================
+        # HANDLE INVALID API KEY
+        # =========================
+
+        if response.status_code == 401:
+
+            print(
+                "\nAPI key is invalid or inactive."
+            )
+
+            print(
+                "Registering agent again..."
+            )
+
+
+            delete_credentials()
+
+
+            credentials = register_agent()
+
+
+            if credentials is None:
+
+                print(
+                    "\nRe-registration failed."
+                )
+
+                print(
+                    "Will retry during the next cycle."
+                )
+
+            else:
+
+                agent_id = (
+                    credentials["agentId"]
+                )
+
+                registered_server_id = (
+                    credentials["serverId"]
+                )
+
+                api_key = (
+                    credentials["apiKey"]
+                )
+
+                headers = {
+
+                    "X-API-Key":
+                        api_key
+
+                }
+
+                print(
+                    "\nAgent re-registered successfully."
+                )
+
+            time.sleep(
+                monitoring_interval
+            )
+
+            continue
 
 
         # =========================
@@ -653,6 +769,10 @@ while True:
         print(
             "Error:",
             error
+        )
+
+        print(
+            "The agent will retry automatically."
         )
 
 
